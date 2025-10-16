@@ -112,45 +112,51 @@
   </footer>
 
   <script>
-    const fetchWalletButton = document.getElementById("fetchWallet");
-    const walletDataDiv = document.getElementById("walletData");
+    async function searchWallet() {
+      const address = document.getElementById('walletInput').value.trim();
+      if (!address) return showNotification('Please enter a wallet address', 'error');
+      if (!address.startsWith('0x') || address.length !== 42) return showNotification('Invalid wallet format', 'error');
 
-    fetchWalletButton.addEventListener("click", async () => {
-      const address = document.getElementById("walletAddress").value.trim();
-      if (!address) {
-        walletDataDiv.innerHTML = `<p style="color:red;">⚠️ Please enter a valid wallet address.</p>`;
-        return;
-      }
-
-      walletDataDiv.innerHTML = `<p>⏳ Fetching wallet data...</p>`;
+      showNotification('Fetching wallet data...', 'info');
+      document.getElementById('features').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
 
       try {
-        const response = await fetch(`https://gravity-pulse-production.up.railway.app/api/wallet/${address}`);
+        const res = await fetch(`https://gravity-pulse-production.up.railway.app/api/wallet/${address}/overview`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch wallet data. Server responded with " + response.status);
-        }
-
-        const data = await response.json();
-
-        if (!data || Object.keys(data).length === 0) {
-          walletDataDiv.innerHTML = `<p style="color:orange;">No wallet data found for this address.</p>`;
-          return;
-        }
-
-        walletDataDiv.innerHTML = `
-          <div class="wallet-info">
-            <h2>Wallet Info</h2>
-            <p><strong>Address:</strong> ${data.address || address}</p>
-            <p><strong>Balance:</strong> ${data.balance || "N/A"} FGC</p>
-            <p><strong>Transaction Count:</strong> ${data.txCount || 0}</p>
+        document.getElementById('walletData').innerHTML = `
+          <div class="bg-black/30 backdrop-blur-md border border-purple-500/30 rounded-2xl p-6 card-glow">
+            <h3 class="text-2xl font-bold mb-4">Wallet Overview</h3>
+            <p><strong>Address:</strong> ${address}</p>
+            <p><strong>Balance:</strong> ${data.nativeBalance || '—'} FOGO</p>
+            <p><strong>Transactions:</strong> ${data.totalTransactions || '—'}</p>
+            <p><strong>Tokens Held:</strong> ${data.tokens?.length || '—'}</p>
           </div>
         `;
 
-      } catch (error) {
-        console.error(error);
-        walletDataDiv.innerHTML = `<p style="color:red;">❌ Error fetching wallet data. Please try again later.</p>`;
+        showNotification('Wallet analysis complete! 🚀', 'success');
+      } catch (err) {
+        console.error(err);
+        showNotification('Error fetching wallet data', 'error');
       }
+    }
+
+    function showNotification(msg, type) {
+      const div = document.createElement('div');
+      div.className = `fixed top-20 right-4 px-6 py-3 rounded-xl text-white font-semibold z-50 slide-in ${
+        type === 'success' ? 'bg-green-500' :
+        type === 'error' ? 'bg-red-500' :
+        'bg-blue-500'
+      }`;
+      div.textContent = msg;
+      document.body.appendChild(div);
+      setTimeout(() => div.remove(), 3000);
+    }
+
+    document.getElementById('walletInput').addEventListener('keypress', e => {
+      if (e.key === 'Enter') searchWallet();
     });
   </script>
 </body>
