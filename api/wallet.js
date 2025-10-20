@@ -2,7 +2,9 @@ import { ethers } from "ethers";
 import axios from "axios";
 
 const GRAVITY_RPC = process.env.GRAVITY_RPC || "https://evmrpc-testnet.0g.ai";
-const GRAVITY_EXPLORER = process.env.GRAVITY_EXPLORER || "https://explorer-api-testnet.0g.ai";
+const EXPLORER_API =
+  process.env.EXPLORER_API || "https://chainscan-galileo.0g.ai/v1/transaction";
+
 const provider = new ethers.JsonRpcProvider(GRAVITY_RPC);
 
 const erc20Abi = [
@@ -12,74 +14,107 @@ const erc20Abi = [
   "function balanceOf(address) view returns (uint256)",
 ];
 
-// Example token list
-const tokenList = [
-  {
-    name: "Gravity Wrapped USDT",
-    symbol: "gUSDT",
-    address: "0x0000000000000000000000000000000000000000",
-  },
-];
-
-// ----------------------
-// ✅ Serverless function
-// ----------------------
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
+  if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
     const { address } = req.query;
-    if (!address || !ethers.isAddress(address)) {
+    if (!address || !ethers.isAddress(address))
       return res.status(400).json({ error: "Invalid wallet address" });
-    }
 
-    // Native balance
+    // ✅ 1. Native balance
     const nativeBalance = await provider.getBalance(address);
     const formattedNative = ethers.formatEther(nativeBalance);
 
-    // Token balances
-    const tokens = [];
-    for (const token of tokenList) {
-      if (token.address !== "0x0000000000000000000000000000000000000000") {
-        const contract = new ethers.Contract(token.address, erc20Abi, provider);
-        const balance = await contract.balanceOf(address);
-        const decimals = await contract.decimals();
-        const symbol = await contract.symbol();
-        const name = await contract.name();
-        tokens.push({
-          name,
-          symbol,
-          balance: Number(ethers.formatUnits(balance, decimals)).toFixed(4),
+    // ✅ 2. Fetch all transactions (pagination loop)
+    let allTxs = [];
+    let skip = 0;
+    const limit = 100;
+
+    while (true) {
+      const url = `${EXPLORER_API}?accountAddress=${address}&limit=${limit}&skip=${skip}`;
+      const resp = await axios.get(url);
+      const txs = resp.data?.data || resp.data?.transactions || [];
+      if (!Array.isArray(txs) || txs.length === 0) break;
+      allTxs = allTxs.concat(txs);
+      if (txs.length < limit) break;
+      skip += limit;
+    }
+
+    // ✅ 3. Detect unique token contract addresses from transactions
+    const tokenAddresses = new Set();
+
+    for (const tx of allTxs) {
+      // some explorers include token transfer details under "logs" or "tokenTransfers"
+      if (tx.tokenTransfers && Array.isArray(tx.tokenTransfers)) {
+        tx.tokenTransfers.forEach((t) => {
+          if (t.contractAddress && ethers.isAddress(t.contractAddress)) {
+            tokenAddresses.add(t.contractAddress);
+          }
         });
+      }
+
+      // fallback: detect smart contract interactions (input data)
+      if (
+        tx.to &&
+        tx.input &&
+        tx.input !== "0x" &&
+        ethers.isAddress(tx.to)
+      ) {
+        tokenAddresses.add(tx.to);
       }
     }
 
-    // Transaction history (try Explorer)
-    let history = [];
-    try {
-      const resp = await axios.get(`${GRAVITY_EXPLORER}/address/${address}/transactions?limit=10`);
-      history = resp.data?.transactions || [];
-    } catch {
-      console.warn("Could not fetch transaction history from explorer");
+    // ✅ 4. Query token info + balances
+    const tokens = [];
+    for (const tokenAddress of tokenAddresses) {
+      try {
+        const contract = new ethers.Contract(tokenAddress, erc20Abi, provider);
+        const [name, symbol, decimals, rawBalance] = await Promise.all([
+          contract.name(),
+          contract.symbol(),
+          contract.decimals(),
+          contract.balanceOf(address),
+        ]);
+
+        const balance = parseFloat(ethers.formatUnits(rawBalance, decimals));
+        if (balance > 0) {
+          tokens.push({ name, symbol, address: tokenAddress, balance });
+        }
+      } catch {
+        // ignore non-ERC20 contracts or failed queries
+      }
     }
 
-    // Response
+    // ✅ 5. Extract stats
+    const totalTx = allTxs.length;
+    const sorted = allTxs.sort(
+      (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+    );
+    const firstTxDate = sorted[0]?.timestamp
+      ? new Date(sorted[0].timestamp * 1000).toLocaleString()
+      : "N/A";
+
+    // ✅ 6. NFTs (placeholder — if explorer endpoint exists, plug it here)
+    const nftHoldings = [];
+
+    // ✅ 7. Response
     return res.status(200).json({
       network: "Gravity Network Testnet",
-      rpc: GRAVITY_RPC,
       address,
-      balance: formattedNative,
+      rpc: GRAVITY_RPC,
+      nativeBalance: formattedNative,
       tokens,
-      txHistory: history,
+      totalTransactions: totalTx,
+      firstTxDate,
+      nftHoldings,
+      txHistory: allTxs.slice(-10).reverse(),
     });
   } catch (err) {
     console.error("Error fetching wallet data:", err);
     return res.status(500).json({ error: "Error fetching wallet data" });
   }
-}
+                         }
