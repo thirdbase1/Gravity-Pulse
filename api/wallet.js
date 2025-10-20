@@ -1,60 +1,94 @@
+import { ethers } from "ethers";
 import axios from "axios";
 
+const GRAVITY_RPC =
+  process.env.GRAVITY_RPC || "https://evmrpc-testnet.0g.ai";
+const EXPLORER_API =
+  process.env.EXPLORER_API ||
+  "https://chainscan-galileo.0g.ai/v1/transaction";
+
+const provider = new ethers.JsonRpcProvider(GRAVITY_RPC);
+
+const erc20Abi = [
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+  "function balanceOf(address) view returns (uint256)",
+];
+
 export default async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
+
   try {
     const { address } = req.query;
-    if (!address)
-      return res.status(400).json({ error: "Missing wallet address" });
+    if (!address || !ethers.isAddress(address))
+      return res.status(400).json({ error: "Invalid wallet address" });
 
-    // Base API endpoint for Gravity Network Explorer
-    const BASE_URL = "https://chainscan-galileo.0g.ai/v1";
+    // ✅ Native balance
+    const nativeBalance = await provider.getBalance(address);
+    const formattedNative = ethers.formatEther(nativeBalance);
 
-    // 1️⃣ Fetch native balance
-    const balanceRes = await axios.get(`${BASE_URL}/account?accountAddress=${address}`);
-    const nativeBalance = balanceRes?.data?.result?.balance
-      ? Number(balanceRes.data.result.balance) / 1e18
-      : 0;
+    // ✅ Fetch all transactions (only first 100 for speed)
+    const limit = 100;
+    const url = `${EXPLORER_API}?accountAddress=${address}&limit=${limit}&skip=0`;
+    const { data } = await axios.get(url);
 
-    // 2️⃣ Fetch transaction history (limit 100 per page)
-    const txRes = await axios.get(
-      `${BASE_URL}/transaction?accountAddress=${address}&limit=100&skip=0`
+    // ✅ Correct structure from API
+    const txList = data?.result?.list || [];
+    const totalTx = data?.result?.total || txList.length;
+
+    // ✅ Sort by oldest to newest
+    const sortedTxs = [...txList].sort(
+      (a, b) => a.timestamp - b.timestamp
     );
 
-    const txList = txRes?.data?.result?.list || [];
-    const totalTransactions = txRes?.data?.result?.total || txList.length;
-    const firstTx = txList.length
-      ? txList[txList.length - 1]
-      : null;
-    const firstTxDate = firstTx
-      ? new Date(firstTx.timestamp * 1000).toLocaleString()
+    const firstTxDate = sortedTxs[0]
+      ? new Date(sortedTxs[0].timestamp * 1000).toLocaleString()
       : "N/A";
 
-    // Prepare compact recent transactions (latest 10)
-    const txHistory = txList.slice(0, 10).map((tx) => ({
-      hash: tx.hash,
-      from: tx.from,
-      to: tx.to,
-      value: tx.value,
-      timestamp: tx.timestamp,
-    }));
+    // ✅ Auto-detect token balances from recent transactions
+    const tokenAddresses = [
+      ...new Set(
+        txList
+          .map((tx) => tx.toTokenInfo?.address)
+          .filter((addr) => ethers.isAddress(addr))
+      ),
+    ];
 
-    // 3️⃣ Placeholder for tokens & NFTs (no API currently)
-    const tokens = []; // Add ERC20 logic when available
-    const nftHoldings = []; // Add NFT logic when API exists
+    const tokens = [];
+    for (const tokenAddr of tokenAddresses) {
+      try {
+        const contract = new ethers.Contract(tokenAddr, erc20Abi, provider);
+        const [name, symbol, decimals, balance] = await Promise.all([
+          contract.name(),
+          contract.symbol(),
+          contract.decimals(),
+          contract.balanceOf(address),
+        ]);
 
-    // 4️⃣ Response payload
-    return res.status(200).json({
-      address,
+        const formatted = Number(ethers.formatUnits(balance, decimals));
+        if (formatted > 0)
+          tokens.push({ name, symbol, balance: formatted.toFixed(4) });
+      } catch {
+        // skip invalid contracts
+      }
+    }
+
+    res.status(200).json({
       network: "Gravity Network Testnet",
-      nativeBalance,
-      totalTransactions,
+      address,
+      rpc: GRAVITY_RPC,
+      nativeBalance: formattedNative,
+      totalTransactions: totalTx,
       firstTxDate,
       tokens,
-      nftHoldings,
-      txHistory,
+      transactions: txList.slice(0, 10), // last 10 for preview
     });
-  } catch (error) {
-    console.error("Error fetching wallet:", error.message);
-    return res.status(500).json({ error: "Failed to fetch wallet data" });
+  } catch (err) {
+    console.error("Error fetching wallet data:", err);
+    res.status(500).json({ error: "Error fetching wallet data" });
   }
 }
