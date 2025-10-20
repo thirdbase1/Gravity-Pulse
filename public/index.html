@@ -1,165 +1,97 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GravityPulse - Wallet Tracker & Explorer</title>
-  <link rel="icon" href="/favicon.ico" />
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body { box-sizing: border-box; }
-    @keyframes float { 0%,100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
-    @keyframes pulse { 0%,100% {opacity:1;} 50% {opacity:0.5;} }
-    @keyframes slideIn { from {opacity:0; transform:translateY(20px);} to {opacity:1; transform:translateY(0);} }
-    .float { animation: float 3s ease-in-out infinite; }
-    .pulse-glow { animation: pulse 2s ease-in-out infinite; }
-    .slide-in { animation: slideIn 0.5s ease-out; }
-    .gradient-bg {
-      background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #2d1b69 100%);
-    }
-    .card-glow { box-shadow: 0 4px 20px rgba(139, 92, 246, 0.3); }
-    .achievement-glow { box-shadow: 0 0 20px rgba(251, 191, 36, 0.5); }
-  </style>
-</head>
-<body class="gradient-bg min-h-full text-white">
-  <!-- Navigation -->
-  <nav class="bg-black/20 backdrop-blur-md border-b border-purple-500/30 sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex justify-between items-center h-16">
-        <div class="flex items-center space-x-3">
-          <img src="https://coral-enormous-scorpion-331.mypinata.cloud/ipfs/bafkreicaf3kmsbifh4z3ymn2rbrlmrwdmgvnr7ujvlo7fqotaydwl6ts6a"
-               alt="GravityPulse Logo"
-               class="w-8 h-8 rounded-full" />
-          <h1 class="text-xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-            GravityPulse
-          </h1>
-        </div>
-        <div class="hidden md:flex space-x-6">
-          <a href="https://chainscan-galileo.0g.ai/" target="_blank"
-             class="hover:text-purple-400 transition-colors">Explorer</a>
-        </div>
-      </div>
-    </div>
-  </nav>
+import { ethers } from "ethers";
+import axios from "axios";
 
-  <!-- Hero Section -->
-  <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center">
-    <div class="float mb-6">
-      <div class="w-20 h-20 mx-auto bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center text-3xl">🌌</div>
-    </div>
-    <h2 class="text-4xl md:text-6xl font-bold mb-4 bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-400 bg-clip-text text-transparent">
-      Explore the Gravity Network
-    </h2>
-    <p class="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-      Track wallet activity, unlock achievements, and explore the Gravity Network with style.
-    </p>
+const GRAVITY_RPC =
+  process.env.GRAVITY_RPC || "https://evmrpc-testnet.0g.ai";
+const EXPLORER_API =
+  process.env.EXPLORER_API ||
+  "https://chainscan-galileo.0g.ai/v1/transaction";
 
-    <!-- Search Bar -->
-    <div class="max-w-2xl mx-auto mb-8">
-      <div class="relative">
-        <input id="walletInput" type="text" placeholder="Enter wallet address (0x...)"
-          class="w-full px-6 py-4 bg-black/30 border border-purple-500/50 rounded-2xl text-white placeholder-gray-400 focus:outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20">
-        <button onclick="searchWallet()"
-          class="absolute right-2 top-2 px-6 py-2 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl hover:from-purple-600 hover:to-blue-600 transition-all duration-300 font-semibold">
-          🔍 Analyze
-        </button>
-      </div>
-    </div>
+const provider = new ethers.JsonRpcProvider(GRAVITY_RPC);
 
-    <div class="text-sm text-gray-400 mb-8">
-      <span class="bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded-full">
-        ⚡ Built for Fun - Gravity Network Testnet Only
-      </span>
-    </div>
-  </section>
+const erc20Abi = [
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+  "function balanceOf(address) view returns (uint256)",
+];
 
-  <!-- Dashboard -->
-  <section id="dashboard" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
-    <div id="walletData" class="text-center text-gray-300">Loading wallet data...</div>
-  </section>
+// optional token addresses if you know them
+const tokenList = [
+  // add known tokens here if you have them
+];
 
-  <!-- Features -->
-  <section id="features" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-    <div class="bg-black/30 backdrop-blur-md rounded-2xl p-6 border border-purple-500/30 card-glow slide-in">
-      <div class="text-3xl mb-4">🔍</div>
-      <h3 class="text-xl font-bold mb-2">Wallet Search</h3>
-      <p class="text-gray-300">Look up any wallet and view detailed statistics, balances, and history on Gravity Network.</p>
-    </div>
-    <div class="bg-black/30 backdrop-blur-md rounded-2xl p-6 border border-purple-500/30 card-glow slide-in">
-      <div class="text-3xl mb-4">🏆</div>
-      <h3 class="text-xl font-bold mb-2">Achievements</h3>
-      <p class="text-gray-300">Unlock milestones and earn ranks from Gravity Explorer to Space Emperor.</p>
-    </div>
-    <div class="bg-black/30 backdrop-blur-md rounded-2xl p-6 border border-purple-500/30 card-glow slide-in">
-      <div class="text-3xl mb-4">💎</div>
-      <h3 class="text-xl font-bold mb-2">Token Holdings</h3>
-      <p class="text-gray-300">View all tokens held in your wallet with live USD values.</p>
-    </div>
-  </section>
+export default async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
 
-  <!-- Footer -->
-  <footer class="bg-black/20 border-t border-purple-500/30">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
-      <div class="flex items-center justify-center space-x-3 mb-4">
-        <img src="https://coral-enormous-scorpion-331.mypinata.cloud/ipfs/bafkreicaf3kmsbifh4z3ymn2rbrlmrwdmgvnr7ujvlo7fqotaydwl6ts6a"
-             alt="GravityPulse Logo" class="w-6 h-6 rounded-full" />
-        <span class="font-bold">GravityPulse</span>
-      </div>
-      <p class="text-gray-400 text-sm">
-        Built for the Gravity Network Testnet • Not incentivized • Just for fun 🚀
-      </p>
-    </div>
-  </footer>
+  try {
+    const { address } = req.query;
+    if (!address || !ethers.isAddress(address))
+      return res.status(400).json({ error: "Invalid wallet address" });
 
-  <script>
-    async function searchWallet() {
-      const address = document.getElementById('walletInput').value.trim();
-      if (!address) return showNotification('Please enter a wallet address', 'error');
-      if (!address.startsWith('0x') || address.length !== 42) return showNotification('Invalid wallet format', 'error');
+    // ✅ Native balance
+    const nativeBalance = await provider.getBalance(address);
+    const formattedNative = ethers.formatEther(nativeBalance);
 
-      showNotification('Fetching wallet data...', 'info');
-      document.getElementById('features').classList.add('hidden');
-      document.getElementById('dashboard').classList.remove('hidden');
-
-      try {
-        // ✅ Calls your own backend hosted on Vercel
-        const res = await fetch(`/api/wallet?address=${address}`);
-        const data = await res.json();
-
-        if (data.error) throw new Error(data.error);
-
-        document.getElementById('walletData').innerHTML = `
-          <div class="bg-black/30 backdrop-blur-md border border-purple-500/30 rounded-2xl p-6 card-glow">
-            <h3 class="text-2xl font-bold mb-4">Wallet Overview</h3>
-            <p><strong>Address:</strong> ${data.address}</p>
-            <p><strong>Network:</strong> ${data.network}</p>
-            <p><strong>Balance:</strong> ${data.balance || '—'} GRAV</p>
-            <p><strong>RPC Endpoint:</strong> ${data.rpc}</p>
-          </div>
-        `;
-
-        showNotification('Wallet analysis complete! 🚀', 'success');
-      } catch (err) {
-        showNotification('Error fetching wallet data', 'error');
-        console.error(err);
-      }
+    // ✅ Token balances
+    const tokens = [];
+    for (const token of tokenList) {
+      const contract = new ethers.Contract(token.address, erc20Abi, provider);
+      const balance = await contract.balanceOf(address);
+      const decimals = await contract.decimals();
+      tokens.push({
+        name: await contract.name(),
+        symbol: await contract.symbol(),
+        balance: Number(ethers.formatUnits(balance, decimals)).toFixed(4),
+      });
     }
 
-    function showNotification(msg, type) {
-      const div = document.createElement('div');
-      div.className = `fixed top-20 right-4 px-6 py-3 rounded-xl text-white font-semibold z-50 slide-in ${
-        type === 'success' ? 'bg-green-500' :
-        type === 'error' ? 'bg-red-500' :
-        'bg-blue-500'
-      }`;
-      div.textContent = msg;
-      document.body.appendChild(div);
-      setTimeout(() => div.remove(), 3000);
+    // ✅ Fetch all transactions (pagination loop)
+    let allTxs = [];
+    let skip = 0;
+    const limit = 100;
+
+    while (true) {
+      const url = `${EXPLORER_API}?accountAddress=${address}&limit=${limit}&skip=${skip}`;
+      const resp = await axios.get(url);
+      const txs = resp.data?.data || resp.data?.transactions || [];
+
+      if (!Array.isArray(txs) || txs.length === 0) break;
+      allTxs = allTxs.concat(txs);
+
+      if (txs.length < limit) break;
+      skip += limit;
     }
 
-    document.getElementById('walletInput').addEventListener('keypress', e => {
-      if (e.key === 'Enter') searchWallet();
+    // ✅ Extract stats
+    const totalTx = allTxs.length;
+    const sorted = allTxs.sort(
+      (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+    );
+    const firstTxDate = sorted[0]?.timestamp
+      ? new Date(sorted[0].timestamp * 1000).toLocaleString()
+      : "N/A";
+
+    // ✅ NFTs (placeholder — depends on explorer endpoint)
+    // if endpoint available: GET /v1/nfts?owner=address
+    const nftHoldings = [];
+
+    return res.status(200).json({
+      network: "Gravity Network Testnet",
+      address,
+      rpc: GRAVITY_RPC,
+      nativeBalance: formattedNative,
+      totalTransactions: totalTx,
+      firstTxDate,
+      tokens,
+      nftHoldings,
+      txHistory: allTxs.slice(-10).reverse(), // last 10 shown
     });
-  </script>
-</body>
-</html>
+  } catch (err) {
+    console.error("Error fetching wallet data:", err);
+    return res.status(500).json({ error: "Error fetching wallet data" });
+  }
+}
