@@ -1,9 +1,11 @@
 import { ethers } from "ethers";
 import axios from "axios";
 
-const GRAVITY_RPC = process.env.GRAVITY_RPC || "https://evmrpc-testnet.0g.ai";
+const GRAVITY_RPC =
+  process.env.GRAVITY_RPC || "https://evmrpc.0g.ai";
 const EXPLORER_API =
-  process.env.EXPLORER_API || "https://chainscan-galileo.0g.ai/v1/transaction";
+  process.env.EXPLORER_API ||
+  "https://chainscan-galileo.0g.ai/v1/transaction";
 
 const provider = new ethers.JsonRpcProvider(GRAVITY_RPC);
 
@@ -25,96 +27,68 @@ export default async function handler(req, res) {
     if (!address || !ethers.isAddress(address))
       return res.status(400).json({ error: "Invalid wallet address" });
 
-    // ✅ 1. Native balance
+    // ✅ Native balance
     const nativeBalance = await provider.getBalance(address);
     const formattedNative = ethers.formatEther(nativeBalance);
 
-    // ✅ 2. Fetch all transactions (pagination loop)
-    let allTxs = [];
-    let skip = 0;
+    // ✅ Fetch all transactions (only first 100 for speed)
     const limit = 100;
+    const url = `${EXPLORER_API}?accountAddress=${address}&limit=${limit}&skip=0`;
+    const { data } = await axios.get(url);
 
-    while (true) {
-      const url = `${EXPLORER_API}?accountAddress=${address}&limit=${limit}&skip=${skip}`;
-      const resp = await axios.get(url);
-      const txs = resp.data?.data || resp.data?.transactions || [];
-      if (!Array.isArray(txs) || txs.length === 0) break;
-      allTxs = allTxs.concat(txs);
-      if (txs.length < limit) break;
-      skip += limit;
-    }
+    // ✅ Correct structure from API
+    const txList = data?.result?.list || [];
+    const totalTx = data?.result?.total || txList.length;
 
-    // ✅ 3. Detect unique token contract addresses from transactions
-    const tokenAddresses = new Set();
+    // ✅ Sort by oldest to newest
+    const sortedTxs = [...txList].sort(
+      (a, b) => a.timestamp - b.timestamp
+    );
 
-    for (const tx of allTxs) {
-      // some explorers include token transfer details under "logs" or "tokenTransfers"
-      if (tx.tokenTransfers && Array.isArray(tx.tokenTransfers)) {
-        tx.tokenTransfers.forEach((t) => {
-          if (t.contractAddress && ethers.isAddress(t.contractAddress)) {
-            tokenAddresses.add(t.contractAddress);
-          }
-        });
-      }
+    const firstTxDate = sortedTxs[0]
+      ? new Date(sortedTxs[0].timestamp * 1000).toLocaleString()
+      : "N/A";
 
-      // fallback: detect smart contract interactions (input data)
-      if (
-        tx.to &&
-        tx.input &&
-        tx.input !== "0x" &&
-        ethers.isAddress(tx.to)
-      ) {
-        tokenAddresses.add(tx.to);
-      }
-    }
+    // ✅ Auto-detect token balances from recent transactions
+    const tokenAddresses = [
+      ...new Set(
+        txList
+          .map((tx) => tx.toTokenInfo?.address)
+          .filter((addr) => ethers.isAddress(addr))
+      ),
+    ];
 
-    // ✅ 4. Query token info + balances
     const tokens = [];
-    for (const tokenAddress of tokenAddresses) {
+    for (const tokenAddr of tokenAddresses) {
       try {
-        const contract = new ethers.Contract(tokenAddress, erc20Abi, provider);
-        const [name, symbol, decimals, rawBalance] = await Promise.all([
+        const contract = new ethers.Contract(tokenAddr, erc20Abi, provider);
+        const [name, symbol, decimals, balance] = await Promise.all([
           contract.name(),
           contract.symbol(),
           contract.decimals(),
           contract.balanceOf(address),
         ]);
 
-        const balance = parseFloat(ethers.formatUnits(rawBalance, decimals));
-        if (balance > 0) {
-          tokens.push({ name, symbol, address: tokenAddress, balance });
-        }
+        const formatted = Number(ethers.formatUnits(balance, decimals));
+        if (formatted > 0)
+          tokens.push({ name, symbol, balance: formatted.toFixed(4) });
       } catch {
-        // ignore non-ERC20 contracts or failed queries
+        // skip invalid contracts
       }
     }
 
-    // ✅ 5. Extract stats
-    const totalTx = allTxs.length;
-    const sorted = allTxs.sort(
-      (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
-    );
-    const firstTxDate = sorted[0]?.timestamp
-      ? new Date(sorted[0].timestamp * 1000).toLocaleString()
-      : "N/A";
-
-    // ✅ 6. NFTs (placeholder — if explorer endpoint exists, plug it here)
-    const nftHoldings = [];
-
-    // ✅ 7. Response
-    return res.status(200).json({
+    res.status(200).json({
       network: "Gravity Network Testnet",
       address,
       rpc: GRAVITY_RPC,
       nativeBalance: formattedNative,
-      tokens,
       totalTransactions: totalTx,
       firstTxDate,
-      nftHoldings,
-      txHistory: allTxs.slice(-10).reverse(),
+      tokens,
+      transactions: txList.slice(0, 10), // last 10 for preview
     });
   } catch (err) {
     console.error("Error fetching wallet data:", err);
-    return res.status(500).json({ error: "Error fetching wallet data" });
+    res.status(500).json({ error: "Error fetching wallet data" });
   }
-                         }
+}
