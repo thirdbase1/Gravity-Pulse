@@ -122,7 +122,8 @@
       document.getElementById('dashboard').classList.remove('hidden');
 
       try {
-        const res = await fetch(`https://gravity-pulse-production.up.railway.app/api/wallet/${address}`);
+        // ✅ Calls your own backend hosted on Vercel
+        const res = await fetch(`/api/wallet?address=${address}`);
         const data = await res.json();
 
         if (data.error) throw new Error(data.error);
