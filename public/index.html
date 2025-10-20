@@ -6,6 +6,7 @@
   <title>GravityPulse - Wallet Tracker & Explorer</title>
   <link rel="icon" href="/favicon.ico" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { box-sizing: border-box; }
     @keyframes float { 0%,100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
@@ -18,7 +19,6 @@
       background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #2d1b69 100%);
     }
     .card-glow { box-shadow: 0 4px 20px rgba(139, 92, 246, 0.3); }
-    .achievement-glow { box-shadow: 0 0 20px rgba(251, 191, 36, 0.5); }
   </style>
 </head>
 <body class="gradient-bg min-h-full text-white">
@@ -51,7 +51,7 @@
       Explore the Gravity Network
     </h2>
     <p class="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-      Track wallet activity, unlock achievements, and explore the Gravity Network with style.
+      Track wallet activity, token balances, NFTs and more in seconds.
     </p>
 
     <!-- Search Bar -->
@@ -68,7 +68,7 @@
 
     <div class="text-sm text-gray-400 mb-8">
       <span class="bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded-full">
-        ⚡ Built for Fun - Gravity Network Testnet Only
+        ⚡ Gravity Network Testnet Only
       </span>
     </div>
   </section>
@@ -83,17 +83,17 @@
     <div class="bg-black/30 backdrop-blur-md rounded-2xl p-6 border border-purple-500/30 card-glow slide-in">
       <div class="text-3xl mb-4">🔍</div>
       <h3 class="text-xl font-bold mb-2">Wallet Search</h3>
-      <p class="text-gray-300">Look up any wallet and view detailed statistics, balances, and history on Gravity Network.</p>
-    </div>
-    <div class="bg-black/30 backdrop-blur-md rounded-2xl p-6 border border-purple-500/30 card-glow slide-in">
-      <div class="text-3xl mb-4">🏆</div>
-      <h3 class="text-xl font-bold mb-2">Achievements</h3>
-      <p class="text-gray-300">Unlock milestones and earn ranks from Gravity Explorer to Space Emperor.</p>
+      <p class="text-gray-300">Look up any wallet and view its statistics, balances, and history on Gravity Network.</p>
     </div>
     <div class="bg-black/30 backdrop-blur-md rounded-2xl p-6 border border-purple-500/30 card-glow slide-in">
       <div class="text-3xl mb-4">💎</div>
       <h3 class="text-xl font-bold mb-2">Token Holdings</h3>
-      <p class="text-gray-300">View all tokens held in your wallet with live USD values.</p>
+      <p class="text-gray-300">View all tokens and assets held in your wallet, including native, ERC20 and custom tokens.</p>
+    </div>
+    <div class="bg-black/30 backdrop-blur-md rounded-2xl p-6 border border-purple-500/30 card-glow slide-in">
+      <div class="text-3xl mb-4">📊</div>
+      <h3 class="text-xl font-bold mb-2">Activity Graph</h3>
+      <p class="text-gray-300">Visualize your transaction activity over time with interactive graphs.</p>
     </div>
   </section>
 
@@ -112,6 +112,36 @@
   </footer>
 
   <script>
+    async function renderActivityChart(activityData) {
+      const chartContainer = document.createElement('div');
+      chartContainer.className = "bg-black/30 border border-green-500/30 rounded-2xl p-6 card-glow mb-8";
+      chartContainer.innerHTML = `
+        <h3 class="text-xl font-bold mb-4">📈 Daily Activity</h3>
+        <canvas id="activityChart" height="100"></canvas>
+      `;
+      document.getElementById('walletData').appendChild(chartContainer);
+
+      const ctx = document.getElementById("activityChart").getContext("2d");
+      new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: activityData.map(a => a.date),
+          datasets: [{
+            label: "Daily Transactions",
+            data: activityData.map(a => a.count),
+            borderColor: "#8b5cf6",
+            backgroundColor: "rgba(139,92,246,0.3)",
+            fill: true,
+            tension: 0.3,
+          }],
+        },
+        options: {
+          scales: { x: { ticks: { color: "#ccc" } }, y: { ticks: { color: "#ccc" }, beginAtZero: true } },
+          plugins: { legend: { labels: { color: "#fff" } } },
+        },
+      });
+    }
+
     async function searchWallet() {
       const address = document.getElementById('walletInput').value.trim();
       if (!address) return showNotification('Please enter a wallet address', 'error');
@@ -128,70 +158,49 @@
         if (data.error) throw new Error(data.error);
 
         let html = `
-          <div class="bg-black/30 backdrop-blur-md border border-purple-500/30 rounded-2xl p-6 card-glow mb-8">
+          <div class="bg-black/30 border border-purple-500/30 rounded-2xl p-6 card-glow mb-8">
             <h3 class="text-2xl font-bold mb-4">Wallet Overview</h3>
             <p><strong>Address:</strong> ${data.address}</p>
             <p><strong>Network:</strong> ${data.network}</p>
-            <p><strong>Native Balance:</strong> ${data.nativeBalance || '—'} GRAV</p>
+            <p><strong>Native Balance:</strong> ${data.nativeBalance} GRAV</p>
             <p><strong>Total Transactions:</strong> ${data.totalTransactions}</p>
             <p><strong>First Transaction:</strong> ${data.firstTxDate}</p>
           </div>
         `;
 
-        if (data.tokens && data.tokens.length > 0) {
+        if (data.tokens?.length) {
           html += `
-            <div class="bg-black/30 backdrop-blur-md border border-blue-500/30 rounded-2xl p-6 card-glow mb-8">
+            <div class="bg-black/30 border border-blue-500/30 rounded-2xl p-6 card-glow mb-8">
               <h3 class="text-xl font-bold mb-4">💎 Token Holdings</h3>
               <ul class="space-y-2">
                 ${data.tokens.map(t => `
                   <li class="flex justify-between border-b border-purple-500/20 pb-2">
                     <span>${t.name} (${t.symbol})</span>
                     <span>${t.balance}</span>
-                  </li>
-                `).join('')}
+                  </li>`).join('')}
               </ul>
             </div>
           `;
-        } else {
-          html += `<p class="text-gray-400">No tokens found.</p>`;
         }
 
-        if (data.nftHoldings && data.nftHoldings.length > 0) {
+        if (data.txHistory?.length) {
           html += `
-            <div class="bg-black/30 backdrop-blur-md border border-pink-500/30 rounded-2xl p-6 card-glow mb-8">
-              <h3 class="text-xl font-bold mb-4">🖼 NFT Holdings</h3>
-              <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                ${data.nftHoldings.map(nft => `
-                  <div class="bg-black/40 p-3 rounded-xl border border-purple-400/20 text-sm">
-                    <img src="${nft.image || ''}" alt="${nft.name}" class="rounded-lg mb-2">
-                    <p class="font-semibold">${nft.name}</p>
-                    <p class="text-gray-400">${nft.collection || ''}</p>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          `;
-        }
-
-        if (data.txHistory && data.txHistory.length > 0) {
-          html += `
-            <div class="bg-black/30 backdrop-blur-md border border-green-500/30 rounded-2xl p-6 card-glow">
+            <div class="bg-black/30 border border-yellow-500/30 rounded-2xl p-6 card-glow">
               <h3 class="text-xl font-bold mb-4">🧾 Recent Transactions</h3>
               <ul class="text-sm space-y-1">
                 ${data.txHistory.map(tx => `
                   <li class="border-b border-purple-500/10 py-2">
                     <span class="text-purple-300">Hash:</span>
-                    <a href="https://chainscan-galileo.0g.ai/tx/${tx.hash}" target="_blank" class="text-blue-400 hover:underline">${tx.hash.slice(0, 10)}...</a>
-                    <br>
+                    <a href="https://chainscan-galileo.0g.ai/tx/${tx.hash}" target="_blank" class="text-blue-400 hover:underline">${tx.hash.slice(0, 10)}...</a><br>
                     <span class="text-gray-400">Timestamp:</span> ${new Date(tx.timestamp * 1000).toLocaleString()}
-                  </li>
-                `).join('')}
+                  </li>`).join('')}
               </ul>
             </div>
           `;
         }
 
         document.getElementById('walletData').innerHTML = html;
+        if (data.activityGraph?.length) renderActivityChart(data.activityGraph);
         showNotification('Wallet analysis complete! 🚀', 'success');
       } catch (err) {
         console.error(err);
@@ -203,8 +212,7 @@
       const div = document.createElement('div');
       div.className = `fixed top-20 right-4 px-6 py-3 rounded-xl text-white font-semibold z-50 slide-in ${
         type === 'success' ? 'bg-green-500' :
-        type === 'error' ? 'bg-red-500' :
-        'bg-blue-500'
+        type === 'error' ? 'bg-red-500' : 'bg-blue-500'
       }`;
       div.textContent = msg;
       document.body.appendChild(div);
